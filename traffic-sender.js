@@ -1,5 +1,5 @@
 /**
- * Premium Traffic Delivery Engine
+ * Premium Traffic Delivery Engine - FIXED VERSION
  * High-performance traffic sending with intelligent retry logic
  * Enhanced to support ALL Adsterra direct links and any valid URL
  */
@@ -162,7 +162,7 @@ class TrafficSession {
 
         try {
             const results = await Promise.allSettled(requests);
-            this.processBatchResults(results, batchStartTime);
+            this.processBatchResults(results, batchStartTime, batchNumber); // FIX: Pass batchNumber parameter
         } catch (error) {
             Logger.error('Batch processing error', error);
         }
@@ -319,7 +319,8 @@ class TrafficSession {
         }
     }
 
-    processBatchResults(results, batchStartTime) {
+    // FIXED FUNCTION: Added batchNumber parameter
+    processBatchResults(results, batchStartTime, batchNumber) {
         let batchSuccessful = 0;
         let batchFailed = 0;
 
@@ -356,13 +357,14 @@ class TrafficSession {
         const batchDuration = Date.now() - batchStartTime;
         const batchRate = batchSuccessful / (batchDuration / 1000);
 
-        // Log batch progress periodically
-        if (this.stats.batchCount % 10 === 0 || batchNumber === 1 || this.stats.sent === this.stats.total) {
+        // Log batch progress periodically - FIXED: Using this.stats.batchCount instead of undefined batchNumber
+        if (this.stats.batchCount % 10 === 0 || this.stats.batchCount === 1 || this.stats.sent === this.stats.total) {
             const progress = (this.stats.sent / this.stats.total) * 100;
             const elapsed = (Date.now() - this.stats.startTime) / 1000;
             const overallRate = this.stats.sent / elapsed;
             
-            Logger.info(`📦 Progress: ${progress.toFixed(1)}%`, {
+            Logger.info(`📦 Batch ${this.stats.batchCount} completed`, {
+                progress: `${progress.toFixed(1)}%`,
                 sent: this.stats.sent.toLocaleString(),
                 successful: this.stats.successful.toLocaleString(),
                 failed: this.stats.failed.toLocaleString(),
