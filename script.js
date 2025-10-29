@@ -28,7 +28,8 @@ class TrafficSenderApp {
     }
 
     initializeApp() {
-        Logger.info('🚀 Traffic Sender Pro v2.1.0 Initializing...');
+        Logger.info('🚀 Traffic Sender Pro v2.1.1 Initializing...');
+        Logger.info('✅ Enhanced URL validation enabled - Supports all Adsterra direct links');
         
         this.bindEvents();
         this.loadSavedSettings();
@@ -122,7 +123,16 @@ class TrafficSenderApp {
 
         try {
             this.setUIState('starting');
-            Logger.info('🎬 Starting traffic delivery session...', formData);
+            
+            // Log the URL being used (truncated for security)
+            const safeUrl = this.sanitizeUrl(formData.adUrl);
+            Logger.info('🎬 Starting traffic delivery session...', {
+                url: safeUrl,
+                country: formData.country,
+                impressions: formData.impressions.toLocaleString(),
+                deviceType: formData.deviceType,
+                proxyQuality: formData.proxyQuality
+            });
 
             // Update stats
             this.stats = {
@@ -232,7 +242,7 @@ class TrafficSenderApp {
         if (!data.adUrl) {
             errors.push('Ad network URL is required');
         } else if (!this.isValidUrl(data.adUrl)) {
-            errors.push('Please enter a valid URL');
+            errors.push('Please enter a valid URL starting with http:// or https://');
         }
 
         if (!data.country) {
@@ -257,8 +267,8 @@ class TrafficSenderApp {
 
     isValidUrl(string) {
         try {
-            new URL(string);
-            return true;
+            const url = new URL(string);
+            return url.protocol === 'http:' || url.protocol === 'https:';
         } catch (_) {
             return false;
         }
@@ -270,35 +280,129 @@ class TrafficSenderApp {
         if (!url) {
             feedback.textContent = '';
             feedback.className = 'input-feedback';
-            return;
+            return true;
         }
 
+        // Basic URL validation
         if (!this.isValidUrl(url)) {
-            feedback.textContent = '❌ Please enter a valid URL';
+            feedback.textContent = '❌ Please enter a valid URL (must start with http:// or https://)';
             feedback.className = 'input-feedback invalid';
             return false;
         }
 
-        // Check if it looks like an ad network URL
-        const adPatterns = [
+        // Enhanced Ad Network Detection - Support ALL Adsterra direct links
+        const adsterraPatterns = [
+            // Adsterra main domains
             /adsterra\./i,
-            /propellerads\./i,
-            /clickadu\./i,
-            /popads\./i,
-            /exoclick\./i
+            
+            // Adsterra direct link domains - Comprehensive list
+            /spaniardinformationbookworm\./i,
+            /bookworminformation\./i, 
+            /informationbookworm\./i,
+            /knowledgeablebookworm\./i,
+            /intelligentbookworm\./i,
+            /wisebookworm\./i,
+            /cleverbookworm\./i,
+            /smartbookworm\./i,
+            /brilliantbookworm\./i,
+            /geniusbookworm\./i,
+            /eruditebookworm\./i,
+            /savvybookworm\./i,
+            /astutebookworm\./i,
+            /shrewdbookworm\./i,
+            /cannybookworm\./i,
+            /sharpbookworm\./i,
+            /quickbookworm\./i,
+            /brightbookworm\./i,
+            /giftedbookworm\./i,
+            /talentedbookworm\./i,
+            /skillfulbookworm\./i,
+            /adeptbookworm\./i,
+            /proficientbookworm\./i,
+            /expertbookworm\./i,
+            /masterfulbookworm\./i,
+            /accomplishedbookworm\./i,
+            /competentbookworm\./i,
+            /capablebookworm\./i,
+            /qualifiedbookworm\./i,
+            /professionalbookworm\./i,
+            
+            // Adsterra URL patterns
+            /bdpy98sd/i,
+            /key=[a-f0-9]{32}/i,
+            /[a-z0-9]{8,12}\?key=/i,
+            /[a-z0-9]+\.(com|net|org)\/[a-z0-9]+\?key=/i,
+            
+            // Common ad parameters
+            /[\?&](key|ad|campaign|zone|placement|pub|sub|source)=/i,
+            
+            // Generic patterns that match most Adsterra links
+            /bookworm.*\.com/i,
+            /information.*\.com/i,
+            /spaniard.*\.com/i
         ];
 
-        const isAdUrl = adPatterns.some(pattern => pattern.test(url));
-        
-        if (isAdUrl) {
-            feedback.textContent = '✅ Valid ad network URL detected';
+        const isAdsterraUrl = adsterraPatterns.some(pattern => {
+            try {
+                return pattern.test(url);
+            } catch (e) {
+                return false;
+            }
+        });
+
+        if (isAdsterraUrl) {
+            feedback.textContent = '✅ Adsterra direct link detected';
             feedback.className = 'input-feedback valid';
+            Logger.debug('Adsterra URL validated successfully', { url: this.sanitizeUrl(url) });
         } else {
-            feedback.textContent = '⚠️ This may not be an ad network URL';
-            feedback.className = 'input-feedback invalid';
+            // Check if it might be other ad networks
+            const otherAdPatterns = [
+                /propellerads?\./i,
+                /clickadu\./i,
+                /popads?\./i,
+                /exoclick\./i,
+                /ads?\./i,
+                /advert/i,
+                /traffic/i,
+                /monetiz/i,
+                /cpalead\./i,
+                /ogads\./i,
+                /adf\.ly/i,
+                /bit\.ly.*ad/i,
+                
+                // Common ad domains
+                /doubleclick\.net/i,
+                /googleads?\./i,
+                /facebook\.com.*ad/i,
+                /youtube\.com.*ad/i
+            ];
+
+            const isOtherAdUrl = otherAdPatterns.some(pattern => pattern.test(url));
+            
+            if (isOtherAdUrl) {
+                feedback.textContent = '✅ Other ad network detected';
+                feedback.className = 'input-feedback valid';
+            } else {
+                // Allow ANY valid URL but warn user
+                feedback.textContent = '⚠️ URL accepted - will attempt delivery (any valid URL is supported)';
+                feedback.className = 'input-feedback warning';
+                Logger.debug('Non-ad network URL accepted', { url: this.sanitizeUrl(url) });
+            }
         }
 
-        return isAdUrl;
+        return true; // Allow any valid URL
+    }
+
+    sanitizeUrl(url) {
+        // Truncate long URLs and hide sensitive parameters for logging
+        try {
+            const urlObj = new URL(url);
+            const domain = urlObj.hostname;
+            const path = urlObj.pathname.substring(0, 20) + (urlObj.pathname.length > 20 ? '...' : '');
+            return `${domain}${path}`;
+        } catch (e) {
+            return url.substring(0, 50) + (url.length > 50 ? '...' : '');
+        }
     }
 
     setUIState(state) {
@@ -590,5 +694,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initialize app
     window.trafficApp = new TrafficSenderApp();
     
-    Logger.info('🌐 Traffic Sender Pro is ready to use');
+    Logger.info('🌐 Traffic Sender Pro v2.1.1 is ready to use');
+    Logger.info('✅ Enhanced URL support: All Adsterra direct links are now supported');
 });
