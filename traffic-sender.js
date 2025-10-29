@@ -1,7 +1,6 @@
 /**
- * Premium Traffic Delivery Engine - FIXED VERSION
+ * Premium Traffic Delivery Engine - COMPLETELY FIXED VERSION
  * High-performance traffic sending with intelligent retry logic
- * Enhanced to support ALL Adsterra direct links and any valid URL
  */
 
 class TrafficSession {
@@ -41,10 +40,7 @@ class TrafficSession {
             url: this.sanitizeUrl(this.config.adUrl)
         });
 
-        // Pre-generate request queue for better performance
         this.generateRequestQueue();
-        
-        // Adjust concurrency based on settings
         this.adjustConcurrency();
     }
 
@@ -62,7 +58,6 @@ class TrafficSession {
     }
 
     adjustConcurrency() {
-        // Smart concurrency adjustment based on delay and proxy quality
         const baseConcurrency = Math.max(1, Math.min(10, Math.floor(1000 / this.config.delay)));
         
         switch (this.config.proxyQuality) {
@@ -98,10 +93,8 @@ class TrafficSession {
             targetUrl: this.sanitizeUrl(this.config.adUrl)
         });
 
-        // Process in optimized batches
         await this.processOptimizedBatches();
         
-        // Process retry queue if needed
         if (this.retryQueue.length > 0) {
             await this.processRetryQueue();
         }
@@ -119,23 +112,21 @@ class TrafficSession {
             const endIdx = Math.min(startIdx + this.concurrency, this.requestQueue.length);
             const batch = this.requestQueue.slice(startIdx, endIdx);
 
-            await this.processBatch(batch, batchIndex + 1, totalBatches);
+            await this.processBatch(batch, batchIndex);
 
-            // Adaptive delay between batches
             if (this.isRunning && batchIndex < totalBatches - 1) {
                 await this.adaptiveDelay(batchIndex);
             }
         }
     }
 
-    async processBatch(batch, batchNumber, totalBatches) {
+    async processBatch(batch, batchIndex) {
         const batchStartTime = Date.now();
         const controllers = [];
         const requests = [];
 
-        Logger.debug(`Processing batch ${batchNumber}/${totalBatches} (${batch.length} requests)`);
+        Logger.debug(`Processing batch ${batchIndex + 1} (${batch.length} requests)`);
 
-        // Create all requests for the batch
         for (const request of batch) {
             if (!this.isRunning) break;
 
@@ -151,9 +142,8 @@ class TrafficSession {
                     }))
             );
 
-            // Stagger requests within batch for more natural traffic
             if (this.config.enableJitter) {
-                const jitter = Math.random() * 0.4 + 0.8; // 0.8 to 1.2
+                const jitter = Math.random() * 0.4 + 0.8;
                 await this.delay((this.config.delay / this.concurrency) * jitter);
             }
         }
@@ -162,7 +152,7 @@ class TrafficSession {
 
         try {
             const results = await Promise.allSettled(requests);
-            this.processBatchResults(results, batchStartTime, batchNumber); // FIX: Pass batchNumber parameter
+            this.processBatchResults(results, batchStartTime, batchIndex);
         } catch (error) {
             Logger.error('Batch processing error', error);
         }
@@ -193,10 +183,8 @@ class TrafficSession {
             referrerPolicy: 'no-referrer-when-downgrade'
         };
 
-        // Add proxy configuration if available
         if (proxyConfig) {
             requestConfig.proxy = proxyConfig;
-            // Add proxy headers for better simulation
             if (proxyConfig.headers) {
                 Object.assign(requestConfig.headers, proxyConfig.headers);
             }
@@ -211,22 +199,15 @@ class TrafficSession {
                 const response = await fetch(this.config.adUrl, requestConfig);
                 const duration = Date.now() - startTime;
 
-                // Enhanced response validation - More tolerant for various Adsterra responses
                 if (!response.ok) {
-                    // Handle different HTTP status codes appropriately
                     if (response.status >= 500) {
-                        // Server errors - retry
                         throw new Error(`HTTP ${response.status}`);
                     } else if (response.status >= 400) {
-                        // Client errors - might be intentional blocking or redirects
-                        // For Adsterra, some 4xx responses are normal - log but don't fail immediately
-                        Logger.debug(`HTTP ${response.status} received from target`, {
+                        Logger.debug(`HTTP ${response.status} received`, {
                             url: this.sanitizeUrl(this.config.adUrl),
                             attempt: attempt + 1
                         });
                         
-                        // For 404, 403, etc., we'll still count as success for traffic purposes
-                        // since the request reached the destination
                         if (response.status === 404 || response.status === 403) {
                             this.updatePerformanceMetrics(duration, true);
                             return {
@@ -234,7 +215,7 @@ class TrafficSession {
                                 duration: duration,
                                 request: request,
                                 proxy: proxyConfig?.url || 'direct',
-                                note: `HTTP ${response.status} - Request delivered`
+                                note: `HTTP ${response.status}`
                             };
                         } else {
                             throw new Error(`HTTP ${response.status}`);
@@ -242,7 +223,6 @@ class TrafficSession {
                     }
                 }
 
-                // More tolerant content type validation
                 const contentType = response.headers.get('content-type') || '';
                 const validContentTypes = [
                     'text/html',
@@ -251,31 +231,17 @@ class TrafficSession {
                     'application/javascript',
                     'image/',
                     'video/',
-                    'application/octet-stream',
-                    'binary/octet-stream'
+                    'application/octet-stream'
                 ];
 
                 const isValidContent = validContentTypes.some(type => contentType.includes(type));
                 
                 if (!isValidContent) {
-                    Logger.debug(`Unusual content type received: ${contentType}`, {
-                        url: this.sanitizeUrl(this.config.adUrl),
-                        status: response.status
-                    });
-                    // Don't throw error for unusual content types - Adsterra might return various formats
-                }
-
-                // Check response size as additional validation
-                const contentLength = response.headers.get('content-length');
-                if (contentLength && parseInt(contentLength) < 10) {
-                    Logger.debug('Very small response received', {
-                        size: contentLength,
+                    Logger.debug(`Unusual content type: ${contentType}`, {
                         url: this.sanitizeUrl(this.config.adUrl)
                     });
-                    // Very small responses might be errors, but we'll still count as delivered
                 }
 
-                // Update performance metrics
                 this.updatePerformanceMetrics(duration, true);
 
                 return {
@@ -289,38 +255,29 @@ class TrafficSession {
                 attempt++;
                 
                 if (attempt === maxAttempts) {
-                    // Final attempt failed
                     this.updatePerformanceMetrics(Date.now() - startTime, false);
                     
                     if (proxyConfig) {
                         ProxyManager.reportProxyFailure(proxyConfig.url);
                     }
                     
-                    // Log the failure with context
                     Logger.debug('Request failed after all retries', {
                         error: error.message,
                         url: this.sanitizeUrl(this.config.adUrl),
-                        attempts: maxAttempts,
-                        proxy: proxyConfig?.url || 'direct'
+                        attempts: maxAttempts
                     });
                     
                     throw error;
                 }
 
-                // Exponential backoff for retries
                 const backoffDelay = Math.pow(2, attempt) * 100 + Math.random() * 100;
                 await this.delay(backoffDelay);
-                
-                Logger.debug(`Retry attempt ${attempt} after ${backoffDelay}ms delay`, {
-                    error: error.message,
-                    url: this.sanitizeUrl(this.config.adUrl)
-                });
             }
         }
     }
 
-    // FIXED FUNCTION: Added batchNumber parameter
-    processBatchResults(results, batchStartTime, batchNumber) {
+    // FIXED: Properly using batchIndex parameter
+    processBatchResults(results, batchStartTime, batchIndex) {
         let batchSuccessful = 0;
         let batchFailed = 0;
 
@@ -331,20 +288,17 @@ class TrafficSession {
                 this.stats.successful++;
                 batchSuccessful++;
                 
-                // Log successful request occasionally for monitoring
-                if (Math.random() < 0.005) { // 0.5% of successful requests
+                if (Math.random() < 0.01) {
                     Logger.debug('Request successful', {
                         duration: `${result.value.duration}ms`,
                         proxy: result.value.proxy ? 'yes' : 'no',
-                        device: result.value.request.deviceProfile.name,
-                        note: result.value.note || 'OK'
+                        device: result.value.request.deviceProfile.name
                     });
                 }
             } else {
                 this.stats.failed++;
                 batchFailed++;
                 
-                // Add to retry queue with limits
                 if (result.value?.request && this.retryQueue.length < 1000) {
                     result.value.request.retryCount++;
                     if (result.value.request.retryCount <= this.config.maxRetries) {
@@ -357,13 +311,13 @@ class TrafficSession {
         const batchDuration = Date.now() - batchStartTime;
         const batchRate = batchSuccessful / (batchDuration / 1000);
 
-        // Log batch progress periodically - FIXED: Using this.stats.batchCount instead of undefined batchNumber
-        if (this.stats.batchCount % 10 === 0 || this.stats.batchCount === 1 || this.stats.sent === this.stats.total) {
+        // FIXED: Using batchIndex + 1 for batch number display
+        if ((batchIndex + 1) % 10 === 0 || (batchIndex + 1) === 1 || this.stats.sent === this.stats.total) {
             const progress = (this.stats.sent / this.stats.total) * 100;
             const elapsed = (Date.now() - this.stats.startTime) / 1000;
             const overallRate = this.stats.sent / elapsed;
             
-            Logger.info(`📦 Batch ${this.stats.batchCount} completed`, {
+            Logger.info(`📦 Batch ${batchIndex + 1} completed`, {
                 progress: `${progress.toFixed(1)}%`,
                 sent: this.stats.sent.toLocaleString(),
                 successful: this.stats.successful.toLocaleString(),
@@ -383,7 +337,6 @@ class TrafficSession {
 
         Logger.info(`🔄 Processing retry queue: ${this.retryQueue.length} requests`);
 
-        // Process retries with lower concurrency to avoid overwhelming
         const retryConcurrency = Math.max(1, Math.floor(this.concurrency / 2));
         const retryBatches = Math.ceil(this.retryQueue.length / retryConcurrency);
         
@@ -398,7 +351,7 @@ class TrafficSession {
             const retryBatch = this.retryQueue.slice(startIdx, endIdx);
 
             const retryPromises = retryBatch.map(async (request, index) => {
-                await this.delay(index * 100); // Stagger retries more
+                await this.delay(index * 100);
                 return this.executeRequest(request, new AbortController().signal)
                     .catch(() => ({ success: false, request }));
             });
@@ -413,7 +366,6 @@ class TrafficSession {
                 }
             });
 
-            // Small delay between retry batches
             if (i < retryBatches - 1) {
                 await this.delay(500);
             }
@@ -424,8 +376,7 @@ class TrafficSession {
 
         Logger.info('✅ Retry queue completed', {
             successful: retrySuccessful,
-            failed: retryFailed,
-            improvement: `${((retrySuccessful / (retrySuccessful + retryFailed)) * 100).toFixed(1)}% success rate`
+            failed: retryFailed
         });
         
         this.retryQueue = [];
@@ -434,15 +385,13 @@ class TrafficSession {
     async adaptiveDelay(batchIndex) {
         let delay = this.config.delay;
         
-        // Reduce delay as we progress to maintain rate
         if (batchIndex > 10) {
             const progress = this.stats.sent / this.stats.total;
-            delay = Math.max(200, delay * (1 - progress * 0.3)); // Reduce up to 30%
+            delay = Math.max(200, delay * (1 - progress * 0.3));
         }
         
-        // Add jitter for more natural pattern
         if (this.config.enableJitter) {
-            const jitter = Math.random() * 0.4 + 0.8; // 0.8 to 1.2
+            const jitter = Math.random() * 0.4 + 0.8;
             delay *= jitter;
         }
         
@@ -450,15 +399,12 @@ class TrafficSession {
     }
 
     updatePerformanceMetrics(duration, success) {
-        // Update average response time (moving average)
         this.performance.averageResponseTime = 
             (this.performance.averageResponseTime * 0.95) + (duration * 0.05);
         
-        // Update requests per second
         const timeElapsed = (Date.now() - this.stats.startTime) / 1000;
         this.performance.requestsPerSecond = timeElapsed > 0 ? this.stats.sent / timeElapsed : 0;
         
-        // Update success rate
         this.performance.successRate = this.stats.sent > 0 ? 
             (this.stats.successful / this.stats.sent) * 100 : 100;
     }
@@ -474,18 +420,12 @@ class TrafficSession {
             'https://www.instagram.com/',
             'https://www.pinterest.com/',
             'https://www.tumblr.com/',
-            'https://www.quora.com/',
-            'https://www.bing.com/',
-            'https://www.yahoo.com/',
-            'https://www.baidu.com/',
-            'https://www.amazon.com/',
-            'https://www.ebay.com/'
+            'https://www.quora.com/'
         ];
         return referrers[Math.floor(Math.random() * referrers.length)];
     }
 
     sanitizeUrl(url) {
-        // Truncate long URLs for logging
         try {
             const urlObj = new URL(url);
             const domain = urlObj.hostname;
@@ -518,7 +458,7 @@ class TrafficSession {
             this.currentBatch = null;
         }
         
-        Logger.info('⏹️ Traffic session stopped by user');
+        Logger.info('⏹️ Traffic session stopped');
     }
 
     complete() {
@@ -526,18 +466,17 @@ class TrafficSession {
         const sessionDuration = (Date.now() - this.stats.startTime) / 1000;
         
         const finalStats = {
-            duration: `${Math.round(sessionDuration)} seconds`,
+            duration: `${Math.round(sessionDuration)}s`,
             totalRequests: this.stats.sent,
             successful: this.stats.successful,
             failed: this.stats.failed,
-            successRate: `${((this.stats.successful / this.stats.sent) * 100).toFixed(2)}%`,
-            averageRate: `${(this.stats.sent / sessionDuration).toFixed(1)} requests/second`,
+            successRate: `${((this.stats.successful / this.stats.sent) * 100).toFixed(1)}%`,
+            averageRate: `${(this.stats.sent / sessionDuration).toFixed(1)}/sec`,
             averageResponse: `${Math.round(this.performance.averageResponseTime)}ms`,
-            proxiesUsed: ProxyManager.activeProxies.size,
-            targetUrl: this.sanitizeUrl(this.config.adUrl)
+            proxiesUsed: ProxyManager.activeProxies.size
         };
 
-        Logger.info('🎉 Traffic session completed successfully', finalStats);
+        Logger.info('🎉 Session completed', finalStats);
         this.saveSessionResults(finalStats);
     }
 
@@ -545,16 +484,15 @@ class TrafficSession {
         const sessionData = {
             config: {
                 ...this.config,
-                adUrl: this.sanitizeUrl(this.config.adUrl) // Sanitize for storage
+                adUrl: this.sanitizeUrl(this.config.adUrl)
             },
             stats: stats,
-            timestamp: new Date().toISOString(),
-            performance: this.performance
+            timestamp: new Date().toISOString()
         };
 
         const sessions = JSON.parse(localStorage.getItem('trafficSessions') || '[]');
         sessions.push(sessionData);
-        localStorage.setItem('trafficSessions', JSON.stringify(sessions.slice(-20))); // Keep last 20 sessions
+        localStorage.setItem('trafficSessions', JSON.stringify(sessions.slice(-10)));
     }
 
     getStats() {
